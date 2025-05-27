@@ -1,12 +1,13 @@
+# Импорты
 from flask import Flask, jsonify, request, send_file
 from telethon.sync import TelegramClient
 from telethon.sessions import StringSession
-from telethon.errors import SessionPasswordNeededError
 import os
 import uuid
 import qrcode
 from io import BytesIO
 
+# Настройки приложения
 API_ID = os.getenv('API_ID')  # Get from https://my.telegram.org/apps   
 API_HASH = os.getenv('API_HASH')  # "
 SESSION_FOLDER = 'sessions'
@@ -14,7 +15,7 @@ SESSION_FOLDER = 'sessions'
 app = Flask(__name__)
 os.makedirs(SESSION_FOLDER, exist_ok=True)
 
-# Create session & return QR code
+# Маршруты
 @app.route('/auth/create', methods=['GET'])
 def create_session():
     session_name = str(uuid.uuid4())
@@ -38,7 +39,6 @@ def create_session():
     
     return send_file(data['qr'], mimetype='image/png')
 
-# Polling status
 @app.route('/auth/status/<session_name>', methods=['GET'])
 def check_session(session_name):
     session_path = os.path.join(SESSION_FOLDER, session_name)
@@ -67,5 +67,7 @@ def check_session(session_name):
     else:
         return jsonify({'status': 'waiting'})
 
+# Запуск сервера
 if __name__ == '__main__':
-    app.run(debug=True, port=8000)
+    port = int(os.getenv('PORT', 8000))  # Используем PORT из переменных окружения, если он есть
+    app.run(debug=True, host='0.0.0.0', port=port)
