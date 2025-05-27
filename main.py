@@ -1,67 +1,71 @@
-from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import RedirectResponse, JSONResponse
-from starlette.middleware.cors import CORSMiddleware
+from flask import Flask, jsonify, request, send_file
+from telethon.sync import TelegramClient
+from telethon.sessions import StringSession
+from telethon.errors import SessionPasswordNeededError
 import os
-import hashlib
-import hmac
+import uuid
+import qrcode
+from io import BytesIO
 
-# 🚀 FastAPI App
-app = FastAPI()
+API_ID = os.getenv('API_ID')  # Get from https://my.telegram.org/apps   
+API_HASH = os.getenv('API_HASH')  # "
+SESSION_FOLDER = 'sessions'
 
-# 🌐 CORS (открыто для всех доменов — можешь ограничить по хосту)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+app = Flask(__name__)
+os.makedirs(SESSION_FOLDER, exist_ok=True)
 
-# 🔐 Настройки из переменных среды
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-REDIRECT_URL = os.getenv("REDIRECT_URL", "https://your-site.com")
+# Create session & return QR code
+@app.route('/auth/create', methods=['GET'])
+def create_session():
+    session_name = str(uuid.uuid4())
+    session_path = f"{SESSION_FOLDER}/{session_name}"
+    client = TelegramClient(StringSession(), API_ID, API_HASH)
 
-# ✅ Верификация подписи Telegram
-def verify_telegram_auth(data: dict) -> bool:
-    auth_data = data.copy()
-    hash_received = auth_data.pop("hash", "")
-    auth_data = sorted([f"{k}={v}" for k, v in auth_data.items()])
-    data_check_string = "\n".join(auth_data)
+    async def generate_qr():
+        await client.connect()
+        qr_login = await client.qr_login()
+        qr = qrcode.make(qr_login.url)
+        img_io = BytesIO()
+        qr.save(img_io, format='PNG')
+        img_io.seek(0)
+        return {
+            'session': session_name,
+            'qr': img_io
+        }
 
-    secret_key = hmac.new(
-        key=b"WebAppData",
-        msg=BOT_TOKEN.encode(),
-        digestmod=hashlib.sha256
-    ).digest()
+    with client:
+        data = client.loop.run_until_complete(generate_qr())
+    
+    return send_file(data['qr'], mimetype='image/png')
 
-    calculated_hash = hmac.new(
-        secret_key,
-        data_check_string.encode(),
-        hashlib.sha256
-    ).hexdigest()
+# Polling status
+@app.route('/auth/status/<session_name>', methods=['GET'])
+def check_session(session_name):
+    session_path = os.path.join(SESSION_FOLDER, session_name)
+    if not os.path.exists(session_path):
+        return jsonify({'status': 'error', 'message': 'Session not found'}), 404
 
-    return calculated_hash == hash_received
+    client = TelegramClient(StringSession(open(session_path).read()), API_ID, API_HASH)
 
-# 🌐 POST /auth
-@app.post("/auth")
-async def auth(request: Request):
-    try:
-        data = await request.json()
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid JSON")
+    async def check():
+        await client.connect()
+        try:
+            me = await client.get_me()
+            return {
+                'id': me.id,
+                'username': me.username,
+                'first_name': me.first_name
+            }
+        except Exception as e:
+            return {'status': 'waiting'}
 
-    if not verify_telegram_auth(data):
-        raise HTTPException(status_code=403, detail="Invalid Telegram Auth")
+    with client:
+        data = client.loop.run_until_complete(check())
+    
+    if 'id' in data:
+        return jsonify({'status': 'authenticated', 'user': data})
+    else:
+        return jsonify({'status': 'waiting'})
 
-    # 🧠 Извлекаем данные
-    user_id = data["id"]
-    first_name = data.get("first_name", "")
-    username = data.get("username", "")
-
-    # 🌍 Формируем редирект (можно зашифровать или JWT)
-    url = f"{REDIRECT_URL}?tg_id={user_id}&tg_name={first_name}&tg_username={username}"
-    return RedirectResponse(url)
-
-# 🔍 Для тестов
-@app.get("/")
-def index():
-    return JSONResponse({"status": "ok", "bot_token": bool(BOT_TOKEN)})
+if __name__ == '__main__':
+    app.run(debug=True, port=8000)

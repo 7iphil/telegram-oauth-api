@@ -2,11 +2,10 @@ services:
   - type: web
     name: telegram-oauth-api
     env: python
-    plan: free
-    buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn main:app --host 0.0.0.0 --port 10000
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "python main.py"
     envVars:
-      - key: BOT_TOKEN
+      - key: API_ID
         sync: false
-      - key: REDIRECT_URL
+      - key: API_HASH
         sync: false

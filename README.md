@@ -1,21 +1,13 @@
-# 🚀 Telegram OAuth API for WordPress
+# Telegram OAuth API
 
-FastAPI сервис для авторизации пользователей через Telegram Bot Button.
+This project provides a backend service for authenticating users via Telegram using QR codes.
 
-## 📦 Features
+## Features
+- Generate QR code for Telegram login.
+- Verify user authentication status.
 
-- ✅ Подпись `hash` проверяется по Bot Token
-- ✅ Возвращает redirect обратно в WP с tg_id и username
-
-## 🌍 Endpoint
-
-`POST /auth`
-
-### 📥 Пример JSON тела:
-```json
-{
-  "id": 123456789,
-  "first_name": "Phil",
-  "username": "ninja",
-  "hash": "telegram_signed_hash_here"
-}
+## Setup
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/7iphil/telegram-oauth-api.git 
+   cd telegram-oauth-api
