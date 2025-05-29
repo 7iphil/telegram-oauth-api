@@ -1,11 +1,12 @@
 # Импорты
 from flask import Flask, jsonify, request, send_file
-from telethon.sync import TelegramClient
+from telethon import TelegramClient
 from telethon.sessions import StringSession
 import os
 import uuid
 import qrcode
 from io import BytesIO
+import asyncio
 
 # Настройки приложения
 API_ID = os.getenv('API_ID')  # Get from https://my.telegram.org/apps   
@@ -19,7 +20,6 @@ os.makedirs(SESSION_FOLDER, exist_ok=True)
 @app.route('/auth/create', methods=['GET'])
 def create_session():
     session_name = str(uuid.uuid4())
-    session_path = f"{SESSION_FOLDER}/{session_name}"
     client = TelegramClient(StringSession(), API_ID, API_HASH)
 
     async def generate_qr():
@@ -29,15 +29,19 @@ def create_session():
         img_io = BytesIO()
         qr.save(img_io, format='PNG')
         img_io.seek(0)
-        return {
-            'session': session_name,
-            'qr': img_io
-        }
 
-    with client:
-        data = client.loop.run_until_complete(generate_qr())
-    
-    return send_file(data['qr'], mimetype='image/png')
+        # Сохраняем сессию
+        with open(os.path.join(SESSION_FOLDER, session_name), 'w') as f:
+            f.write(client.session.save())
+
+        return img_io
+
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    img_io = loop.run_until_complete(generate_qr())
+    loop.close()
+
+    return send_file(img_io, mimetype='image/png')
 
 @app.route('/auth/status/<session_name>', methods=['GET'])
 def check_session(session_name):
@@ -45,7 +49,10 @@ def check_session(session_name):
     if not os.path.exists(session_path):
         return jsonify({'status': 'error', 'message': 'Session not found'}), 404
 
-    client = TelegramClient(StringSession(open(session_path).read()), API_ID, API_HASH)
+    with open(session_path) as f:
+        session_string = f.read()
+
+    client = TelegramClient(StringSession(session_string), API_ID, API_HASH)
 
     async def check():
         await client.connect()
@@ -56,12 +63,14 @@ def check_session(session_name):
                 'username': me.username,
                 'first_name': me.first_name
             }
-        except Exception as e:
+        except Exception:
             return {'status': 'waiting'}
 
-    with client:
-        data = client.loop.run_until_complete(check())
-    
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    data = loop.run_until_complete(check())
+    loop.close()
+
     if 'id' in data:
         return jsonify({'status': 'authenticated', 'user': data})
     else:
